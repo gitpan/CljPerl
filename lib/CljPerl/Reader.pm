@@ -2,12 +2,11 @@ package CljPerl::Reader;
 
   use strict;
   use warnings;
-  use autodie;
   use CljPerl::Seq;
   use CljPerl::Atom;
   use CljPerl::Logger;
 
-  our $VERSION = '0.01';
+  our $VERSION = '0.02';
 
   sub new {
     my $class = shift;
@@ -202,13 +201,11 @@ package CljPerl::Reader;
       } elsif($c eq "'") {
 	$self->consume(1);
         my $q = $self->lex();
-	$q->type("quotation");
-	return $q;
+	return CljPerl::Atom->new("quotation", $q);
       } elsif($c eq "`") {
 	$self->consume(1);
-        my $sq = $self->seq();
-	$sq->type("syntaxquotation");
-	return $sq;
+        my $sq = $self->lex();
+	return CljPerl::Atom->new("syntaxquotation", $sq);
       } elsif($c eq "~") {
 	$self->consume(1);
         my $dq = $self->symbol();

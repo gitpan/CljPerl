@@ -8,7 +8,7 @@ package CljPerl::Evaler;
   use File::Spec;
   use File::Basename;
 
-  our $VERSION = '0.01';
+  our $VERSION = '0.02';
 
   our $namespace_key = "0namespace0";
 
@@ -123,7 +123,7 @@ package CljPerl::Evaler;
         };
       }
     }
-    CljPerl::Printer::error("cannot find " . $file); 
+    CljPerl::Logger::error("cannot find " . $file); 
   }
 
   sub load {
@@ -152,6 +152,7 @@ package CljPerl::Evaler;
 
   our $builtin_funcs = {
                   "eval"=>1,
+                  syntax=>1,
                   def=>1,
                   "set!"=>1,
                   fn=>1,
@@ -172,6 +173,7 @@ package CljPerl::Evaler;
                   "namespace-begin"=>1,
                   "namespace-end"=>1,
                   "perl->clj"=>1,
+                  "clj->string"=>1,
                   "!"=>1,
                   "+"=>1,
                   "-"=>1,
@@ -210,6 +212,13 @@ package CljPerl::Evaler;
       return $false;
     } elsif($type eq "symbol" and $value eq "nil") {
       return $nil;
+    } elsif($type eq "syntaxquotation" or $type eq "quotation") {
+      $self->{syntaxquotation_scope} += 1 if $type eq "syntaxquotation";
+      $self->{quotation_scope} += 1 if $type eq "quotation";
+      my $r = $self->bind($value);
+      $self->{syntaxquotation_scope} -= 1 if $type eq "syntaxquotation";
+      $self->{quotation_scope} -= 1 if $type eq "quotation";
+      return $r;
     } elsif(($type eq "symbol" and $self->{syntaxquotation_scope} == 0
         and $self->{quotation_scope} == 0) or
        ($type eq "dequotation" and $self->{syntaxquotation_scope} > 0)) {
@@ -229,12 +238,8 @@ package CljPerl::Evaler;
       return $q;
     } elsif($class eq "Seq") {
       return $empty_list if $type eq "list" and $ast->size() == 0;
-      $self->{syntaxquotation_scope} += 1 if $type eq "syntaxquotation";
-      $self->{quotation_scope} += 1 if $type eq "quotation";
       my $list = CljPerl::Seq->new("list");
-      if($type ne "syntaxquotation" and $type ne "quotation"){
-        $list->type($type);
-      };
+      $list->type($type);
       foreach my $i (@{$value}) {
         if($i->type() eq "dequotation" and $i->value() =~ /^@/){
           my $dl = $self->bind($i);
@@ -246,8 +251,6 @@ package CljPerl::Evaler;
           $list->append($self->bind($i));
         }
       }
-      $self->{syntaxquotation_scope} -= 1 if $type eq "syntaxquotation";
-      $self->{quotation_scope} -= 1 if $type eq "quotation";
       return $list;
     };
     return $ast;
@@ -277,8 +280,8 @@ package CljPerl::Evaler;
         $ast->error("keyword accessor expects a map or meta as the first arguments")
            if $mtype ne "map" and $mtype ne "meta";
         if($size == 2) {
-          $ast->error("key " . $fvalue . " does not exist")
-            if ! exists $mvalue->{$fvalue};
+          #$ast->error("key " . $fvalue . " does not exist")
+          return $nil  if ! exists $mvalue->{$fvalue};
           return $mvalue->{$fvalue};
         } elsif($size == 3) {
           $mvalue->{$fvalue} = $self->_eval($ast->third());
@@ -347,7 +350,14 @@ package CljPerl::Evaler;
         my @rargs = $ast->slice(1 .. $size-1);
         my @args = ();
         foreach my $arg (@rargs) {
-          push @args, $self->clj2perl($arg);
+          my $pobj = $self->clj2perl($arg);
+          if(ref($pobj) eq "ARRAY") {
+            push @args, @{$pobj};
+          } elsif(ref($pobj) eq "HASH") {
+            push @args, %{$pobj};
+          } else {
+            push @args, $pobj;
+          };
         };
         my $perl_func = $f->value();
         return &wrap_perlobj(\&{$perl_func}(@args));
@@ -436,10 +446,13 @@ package CljPerl::Evaler;
 
     # (eval "bla bla bla")
     if($fn eq "eval") {
-      $ast->error("eval expects 1 argument1") if $size != 2;
+      $ast->error("eval expects 1 argument") if $size != 2;
       my $s = $ast->second();
       $ast->error("eval expects 1 string as argument") if $s->type() ne "string";
       return $self->eval($s->value());
+    } elsif($fn eq "syntax") {
+      $ast->error("syntax expects 1 argument") if $size != 2;
+      return $self->bind($ast->second());
     # (def ^{} name value)
     } elsif($fn eq "def") {
       $ast->error($fn . " expects 2 arguments") if $size > 4 or $size < 3;
@@ -477,9 +490,9 @@ package CljPerl::Evaler;
       $ast->error("fn expects >= 3 arguments") if $size < 3;
       my $args = $ast->second();
       my $argstype = $args->type();
+      $ast->error("fn expects [arg ...] as formal argument list") if $argstype ne "vector";
       my $argsvalue = $args->value();
       my $argssize = $args->size();
-      $ast->error("fn expects [arg ...] as formal argument list") if $argstype ne "vector";
       my $i = 0;
       foreach my $arg (@{$argsvalue}) {
         $arg->error("formal argument should be a symbol") if $arg->type() ne "symbol";
@@ -520,8 +533,13 @@ package CljPerl::Evaler;
     # (require "filename")
     } elsif($fn eq "require") {
       $ast->error("require expects 1 argument") if $size != 2;
-      my $m = $self->_eval($ast->second());
-      $ast->error("require expects a string") if $m->type() ne "string";
+      my $m = $ast->second();
+      if($m->type() eq "symbol" or $m->type() eq "keyword") {
+      } else {
+        $m = $self->_eval($m);
+        $ast->error("require expects a string or symbol or keyword")
+          if $m->type() ne "string";
+      };
       $self->load($m->value());
     # (list 'a 'b 'c)
     } elsif($fn eq "list") {
@@ -722,11 +740,13 @@ package CljPerl::Evaler;
     # (namespace-begin "ns")
     } elsif($fn eq "namespace-begin") {
       $ast->error("namespace-begin expects 1 argument") if $size != 2;
-      my $v = $self->_eval($ast->second());
-      $ast->error("namespace-begin expects string as argument")
-        if $v->type() ne "string"
-           and $v->type() ne "symbol"
-           and $v->type() ne "keyword";
+      my $v = $ast->second();
+      if($v->type() eq "symbol" or $v->type() eq "keyword") {
+      } else {
+        $v = $self->_eval($v);
+        $ast->error("namespace-begin expects string as argument")
+          if $v->type() ne "string";
+      };
       $self->push_namespace($v->value());
       return $v;
     # (namespace-end)
@@ -766,6 +786,10 @@ package CljPerl::Evaler;
       my $m = $v->meta();
       $ast->error("no meta data in " . CljPerl::Printer::to_string($v)) if !defined $m;
       return $m;
+    } elsif($fn eq "clj->string") {
+      $ast->error("clj->string expects 1 argument") if $size != 2;
+     my $v = $self->_eval($ast->second());
+      return CljPerl::Atom->new("string", CljPerl::Printer::to_string($v));
     # (.namespace function args...)
     } elsif($fn =~ /^(\.|->)(\S*)$/) {
       my $blessed = $1;
@@ -807,7 +831,14 @@ package CljPerl::Evaler;
         my @args = ();
         push @args, $ns if $blessed eq "->";
         foreach my $r (@rest) {
-          push @args, $self->clj2perl($self->_eval($r));
+          my $pobj = $self->clj2perl($self->_eval($r));
+          if(ref($pobj) eq "ARRAY") {
+            push @args, @{$pobj};
+          } elsif(ref($pobj) eq "HASH") {
+            push @args, %{$pobj};
+          } else {
+            push @args, $pobj;
+          }
         };
         return &wrap_perlobj(\$perl_func->(@args));
       }
@@ -853,13 +884,13 @@ package CljPerl::Evaler;
       foreach my $i (@{$value}) {
         push @r, $self->clj2perl($i);
       };
-      return @r;
+      return \@r;
     } elsif($type eq "map") {
       my %r = ();
       foreach my $k (keys %{$value}) {
         $r{$k} = $self->clj2perl($value->{$k});
       };
-      return %r;
+      return \%r;
     } elsif($type eq "function") {
       my $f = sub {
         my @args = @_;

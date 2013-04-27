@@ -3,12 +3,12 @@
 
 #########################
 
-use Test::More tests=>3;
+use Test::More tests=>2;
 BEGIN { use_ok('CljPerl') };
 
 my $test = CljPerl::Evaler->new();
 
-ok($test->load("t/basic_syntax.clp"), 'basic syntax');
-
-ok($test->eval("(def abc \"abc\")"), 'eval');
+$test->load("core");
+$test->load("file");
+ok($test->load("t/file.clp"), 'file operations');
 

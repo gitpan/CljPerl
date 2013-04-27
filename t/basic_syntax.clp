@@ -158,10 +158,10 @@
   (println "bbbb")
   (. puts f "aaa")))
 
-(open ">t.txt" (fn [f]
-  (>> f "aaa")))
+(println (clj->string {:a 'b}))
 
-(open "<t.txt" (fn [f]
-  (println (perl->clj (<< f)))))
+(println (gen-name))
 
+(println `:aa)
 
+(println (syntax `aa))

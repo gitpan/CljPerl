@@ -23,7 +23,7 @@ our @EXPORT = qw(
 	
 );
 
-our $VERSION = '0.01';
+our $VERSION = '0.02';
 
 
 # Preloaded methods go here.
@@ -59,6 +59,10 @@ sub use_lib {
 
 my $lib_path = File::Spec->rel2abs(dirname(__FILE__));
 use_lib($lib_path);
+
+sub gen_name {
+  return "gen-" . rand;
+}
 
 1;
 __END__
@@ -162,155 +166,155 @@ An advanced example which creates a timer with AnyEvent.
 
 =head4 Reader
 
-=head5 Reader forms
+ * Reader forms
 
-=head6 Symbols :
+   * Symbols :
 
 	foo, foo#bar
 
-=head6 Literals
+   * Literals
  
-=head6 Strings :
+   * Strings :
 
 	"foo", "\"foo\tbar\n\""
 
-=head6 Numbers :
+   * Numbers :
 
 	1, -2, 2.5
 
-=head6 Booleans :
+   * Booleans :
 
 	true, false
 
-=head6 Keywords :
+   * Keywords :
 
 	:foo
 
-=head5 Lists :
+ * Lists :
 
 	(foo bar)
 
-=head5 Vectors :
+ * Vectors :
 
 	[foo bar]
 
-=head5 Maps :
+ * Maps :
 
 	{:key1 value1 :key2 value2 "key3" value3}
 
 
-#### Macro charaters
+=head4 Macro charaters
 
-=head5 Quote (') :
+ * Quote (') :
 
 	'(foo bar)
 
-=head5 Comment (;) :
+ * Comment (;) :
 
 	; comment
 
-=head5 Metadata (^) :
+ * Metadata (^) :
 
 	^{:key value}
 
-=head5 Syntax-quote (`) :
+ * Syntax-quote (`) :
 
 	`(foo bar)
 
-=head5 Unquote (~) :
+ * Unquote (~) :
 
 	`(foo ~bar)
 
-=head5 Unquote-slicing (~@) :
+ * Unquote-slicing (~@) :
 
 	`(foo ~@bar)
 
 =head4 Builtin Functions
 
-=head5 list :
+ * list :
 
 	(list 'a 'b 'c) ;=> '(a b c)
 
-=head5 car :
+ * car :
 
 	(car '(a b c))  ;=> 'a
 
-=head5 cdr :
+ * cdr :
 
 	(cdr '(a b c))  ;=> '(b c)
 
-=head5 cons :
+ * cons :
 
 	(cons 'a '(b c)) ;=> '(a b c)
 
-=head5 key accessor :
+ * key accessor :
 
 	(:a {:a 'a :b 'a}) ;=> 'a
 
-=head5 keys :
+ * keys :
 
 	(keys {:a 'a :b 'b}) ;=> (:a :b)
 
-=head5 index accessor :
+ * index accessor :
 
 	(1 ['a 'b 'c]) ;=> 'b
 
-=head5 length :
+ * length :
 
 	(length '(a b c)) ;=> 3
 	(length ['a 'b 'c]) ;=> 3
 	(length "abc") ;=> 3
 
-=head5 append :
+ * append :
 
 	(append '(a b) '(c d)) ;=> '(a b c d)
 	(append ['a 'b] ['c 'd]) ;=> ['a 'b 'c 'd]
 	(append "ab" "cd") ;=> "abcd"
 
-=head5 type :
+ * type :
 
 	(type "abc") ;=> "string"
 	(type :abc)  ;=> "keyword"
 	(type {})    ;=> "map"
 
-=head5 meta :
+ * meta :
 
 	(meta foo ^{:m 'b})
 	(meta foo) ;=> {:m 'b}
 
-=head5 fn :
+ * fn :
 
 	(fn [arg & args]
 	  (println 'a))
 
-=head5 apply :
+ * apply :
 
 	(apply list '(a b c)) ;=> '(a b c)
 
-=head5 eval :
+ * eval :
 
 	(eval "(+ 1 2)")
 
-=head5 require :
+ * require :
 
 	(require "core")
 
-=head5 def :
+ * def :
 
 	(def foo "bar")
 	(def ^{:k v} foo "bar")
 
-=head5 set! :
+ * set! :
 
 	(set! foo "bar") 
 
-=head5 defmacro :
+ * defmacro :
 
 	(defmacro foo [arg & args]	
 	  `(println ~arg)
 	  `(list ~@args))
 
-=head5 if :
+ * if :
 
 	(if (> 1 0)
 	  (println true)
@@ -319,81 +323,81 @@ An advanced example which creates a timer with AnyEvent.
 	(if true
 	  (println true))
 
-=head5 while :
+ * while :
 
 	(while true
 	  (println true))
 
-=head5 begin :
+ * begin :
 
 	(begin
 	  (println 'foo)
 	  (println 'bar))
 
-=head5 perl->clj :
+ * perl->clj :
 
-=head5 ! :
+ * ! :
 
 	(! true) ;=> false
 
-=head5 + - * / % == != >= <= > < : only for number.
+ * + - * / % == != >= <= > < : only for number.
 
-=head5 eq ne : only for string.
+ * eq ne : only for string.
 
-=head5 equal : for all objects.
+ * equal : for all objects.
 
-=head5 . : (.[perl namespace] method args ...)
+ * . : (.[perl namespace] method args ...)
 
 	(.CljPerl print "foo")
 
-=head5 -> : (->[perl namespace] method args ...)
+ * -> : (->[perl namespace] method args ...)
    Like '.', but this will pass perl namespace as first argument to perl method.
 
-=head5 println
+ * println
 
 	(println {:a 'a})
 
-=head5 trace-vars : Trace the variables in current frame.
+ * trace-vars : Trace the variables in current frame.
 
 	(trace-vars)
 
 =head4 Core Functions
 
-=head5 use-lib : append path into Perl and CljPerl files' searching paths.
+ * use-lib : append path into Perl and CljPerl files' searching paths.
 
 	(use-lib "path")
 
-=head5 ns : CljPerl namespace.
+ * ns : CljPerl namespace.
 
 	(ns "foo"
 	  (println "bar"))
 
-=head5 defn :
+ * defn :
 
 	(defn foo [arg & args]
 	  (println arg))
 
-=head5 defmulti :
+ * defmulti :
 
-=head5 defmethod :
+ * defmethod :
 
-=head5 reduce :
+ * reduce :
 
-=head5 map :
+ * map :
 
-=head5 open : open a file with a callback.
+ * file#open : open a file with a callback.
 
-	(open ">file"
+	(file#open ">file"
 	  (fn [fh]
-	    (>> fn "foo")))
+	    (file#>> fn "foo")))
 
-=head5 << : read a line from a file handler.
+ * file#<< : read a line from a file handler.
 
-	(<< fh)
+	(file#<< fh)
 
-=head5 >> : write a string into a file handler.
+ * file#>> : write a string into a file handler.
 
-	(>> fh "foo")
+	(file#>> fh "foo")
 
 =head1 SEE ALSO
 

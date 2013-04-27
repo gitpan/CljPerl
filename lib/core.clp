@@ -34,17 +34,9 @@
     ()
     alist))
 
-; file
-(defn open [file cb]
-  (. open file cb))
-
-(defn >> [fh str]
-  (. puts fh str))
-
-(defn << [fh]
-  (. readline fh))
-
+; append lib search path
 (defn use-lib [path]
   (. use_lib path))
 
-
+(defn gen-name []
+  (perl->clj (. gen_name)))
