@@ -6,7 +6,7 @@ package CljPerl::Reader;
   use CljPerl::Atom;
   use CljPerl::Logger;
 
-  our $VERSION = '0.03';
+  our $VERSION = '0.04';
 
   sub new {
     my $class = shift;
@@ -136,7 +136,7 @@ package CljPerl::Reader;
     if($mode eq "string"){
       open $fh, "<", \$file_or_str or die "cannot read string $file_or_str";
     } else {
-      open $fh, "<:encoding(utf8)", $file_or_str or die "cannot open file $file_or_str";
+      open $fh, "<", $file_or_str or die "cannot open file $file_or_str";
     };
     $self->filehandler($fh);
     $self->filename($file_or_str);
@@ -362,7 +362,7 @@ package CljPerl::Reader;
 	    and $c ne '[' and $c ne ']'
 	    and $c ne '{' and $c ne '}') {
           $self->error("unexpected letter " . $c . " for symbol")
-            if $c =~ /[^0-9a-zA-Z_!&\?\*\/\.\+\|=%\$<>#@\:\-]/;
+            if $c =~ /[^0-9a-zA-Z_!&\?\*\/\.\+\|=%\$<>#@\:\-\\]/;
           $sym->{value} .= $c;
 	  $self->consume(1);
 	} else {
