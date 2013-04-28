@@ -47,6 +47,14 @@
 
 	; comment
 
+##### Dispatch (#) :
+
+###### Accessor (:) :
+
+	#:0 ; index accessor
+	#:"key" ; key accessor
+	#::key  ; key accessor
+
 ##### Metadata (^) :
 
 	^{:key value}
@@ -83,7 +91,7 @@
 
 ##### key accessor :
 
-	(:a {:a 'a :b 'a}) ;=> 'a
+	(#::a {:a 'a :b 'a}) ;=> 'a
 
 ##### keys :
 
@@ -91,7 +99,7 @@
 
 ##### index accessor :
 
-	(1 ['a 'b 'c]) ;=> 'b
+	(#:1 ['a 'b 'c]) ;=> 'b
 
 ##### length :
 
@@ -141,6 +149,12 @@
 ##### set! :
 
 	(set! foo "bar") 
+
+##### let :
+
+	(let [a 1
+	      b a]
+	  (println b))
 
 ##### defmacro :
 
