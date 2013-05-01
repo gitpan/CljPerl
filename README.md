@@ -8,6 +8,11 @@ However, programming in Lisp is more insteresting.
 CljPerl is a bridge between Lisp and Perl. We can program in Lisp and
 make use of the great resources from CPAN.
 
+## Key features
+
+ * Seamless connection with Perl.
+ * Native XML form which could be used to create web page template.
+
 ## Example
 
 	;; file t.clp
@@ -114,15 +119,58 @@ Another example which uses AnyEvent::HTTPD to create a http server.
 	(require anyevent-httpd)
 
 	(anyevent-httpd#start-server {:port 9090}
-	  {"/" (fn [hd req]
-	    (anyevent-httpd#respond req
-	      {"content" ["text/html"
-	                  "<html><body><h1>Hello World!</h1><a href=\"/test\">Another test page</a></body></html>"]})) 
-	  "/test"  (fn [hd req]
-	    (anyevent-httpd#respond req
-	      {"content" ["text/html"
-	                  "<html><body><h1>Test page</h1><a href=\"/\">Back to the main page</a></body></html>"]}))}
+	  {"/"     #[html #[body #[h1 "Hello World!"] #[a ^{:href "/test"} "Another test page"]]]
+	  "/test"  #[html #[body #[h1 "Test page"] #[a ^{:href "/"} "Back to the main page"]]]})
 
 ## Documents
 
 See APIs.md
+
+## Quoi
+
+Quoi is a simple web framework by CljPerl.
+
+#### APP : app.clj
+
+	; load quoi
+	(require quoi)
+
+	(def alist (list "a" "b" "c"))
+
+	(map (fn [i]
+	  ; set page per item in alist 
+	  (quoi#page (append "/" (append i "$"))
+	    (fn [S]
+	      #[html
+	        #[body
+	        #[h1 i]
+	        #[p "url: " (#::path S)] ; S is an object hosts request/session information.
+	        #[p "method: " (#::method S)]
+	        #[p "params: " (clj->string (#::params S))]
+	        #[p "headers: " (clj->string (#::headers S))]]])))
+	  alist)
+
+	; set the index page.
+	(quoi#page "/$"
+	  "index.clp")
+
+	(quoi#start {:port 9090})
+
+#### Template : index.clp
+
+	#[html
+	  #[body
+	    #[h1 "hello world"]
+	    #[p "url: " (#::path S)]
+	    #[p "method: " (#::method S)]
+	    #[p "params: " (clj->string (#::params S))]
+	    #[p "headers: " (clj->string (#::headers S))] 
+	    #[ul (map
+	           (fn [i]
+	              #[li #[a ^{:href (append "/" i)} (append "item " i)]])
+	           (list "a" "b" "c"))]]]
+
+#### Run
+
+	bin/cljp app.clj
+	

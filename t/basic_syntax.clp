@@ -171,3 +171,16 @@
         b a]
     (println a)
     (println b)))
+
+(def sender (fn [ & args] (println args)))
+
+(#!"sender" "bbb")
+
+(println #[abc ^{:abc "bb"} #[ccd]])
+
+(println (match "(\\w)" "abc"))
+
+(println (and true true))
+(println (or true false))
+(println (and true false))
+(println (or false false))

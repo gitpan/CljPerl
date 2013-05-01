@@ -23,11 +23,12 @@ our @EXPORT = qw(
 	
 );
 
-our $VERSION = '0.04';
+our $VERSION = '0.05';
 
 
 # Preloaded methods go here.
 
+# file
 sub print {
   print @_;
 }
@@ -52,6 +53,12 @@ sub readline {
   return <$fh>;
 }
 
+sub file_exists {
+  my $file = shift;
+  return \(-e $file);
+}
+
+# lib search path
 sub use_lib {
   my $path = shift;
   unshift @INC, $path;
@@ -62,6 +69,14 @@ use_lib($lib_path);
 
 sub gen_name {
   return "gen-" . rand;
+}
+
+# regexp
+sub match {
+  my $regexp = shift;
+  my $str = shift;
+  my @m = ($str =~ qr($regexp));
+  return \@m;
 }
 
 1;
@@ -222,6 +237,14 @@ An advanced example which creates a timer with AnyEvent.
 	#:"key" ; key accessor
 	#::key  ; key accessor
 
+   * Sender (!) :
+
+	#!"foo"
+
+   * XML ([) :
+
+	#[body ^{:attr "value"}]
+
  * Metadata (^) :
 
 	^{:key value}
@@ -267,6 +290,14 @@ An advanced example which creates a timer with AnyEvent.
  * index accessor :
 
 	(#:1 ['a 'b 'c]) ;=> 'b
+
+ * sender :
+
+	(#:"foo" ['a 'b 'c]) ;=> (foo ['a 'b 'c])
+
+ * xml :
+
+	#[html ^{:class "markdown"} #[body "helleworld"]]
 
  * length :
 
@@ -361,16 +392,14 @@ An advanced example which creates a timer with AnyEvent.
 
  * equal : for all objects.
 
- * . : (.[perl namespace] method args ...)
-        method name can be specifed with sigils to control what type of value should be passed into perl function.
-        ^[$@%!\\]?method[$@%\\]+
-        $ : scalar
-        @ : array
-        % : hash
-        ! : nil
-
+ * . : (.[perl namespace] method [^meta] args ...)
+	A meta can be specifed to control what type of value should be passed into perl function.
+	type : "scalar" "array" "hash" "ref" "nil"
+	^{:return type
+	  :arguments [type ...]}
+	
 	(.CljPerl print "foo")
-	(.CljPerl !print$ "foo") ; return nil and pass first argument as a scalar
+	(.CljPerl print ^{:return "nil" :arguments ["scalar"]} "foo") ; return nil and pass first argument as a scalar
 
  * -> : (->[perl namespace] method args ...)
    Like '.', but this will pass perl namespace as first argument to perl method.

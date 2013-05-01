@@ -8,7 +8,7 @@ package CljPerl::Evaler;
   use File::Spec;
   use File::Basename;
 
-  our $VERSION = '0.04';
+  our $VERSION = '0.05';
 
   our $namespace_key = "0namespace0";
 
@@ -129,15 +129,32 @@ package CljPerl::Evaler;
   sub load {
     my $self = shift;
     my $file = shift;
+    CljPerl::Logger::error("cannot require file " . $file . " in non-global scope")
+      if scalar @{$self->scopes()} > 1;
     $file = File::Spec->rel2abs($self->search_file($file));
     return 1 if exists $self->{loaded_files}->{$file};
     $self->{loaded_files}->{$file} = 1;
     push @{$self->{file_stack}}, $file;
+    my $res = $self->read($file);
+    pop @{$self->{file_stack}};
+    return $res;
+  }
+
+  sub read {
+    my $self = shift;
+    my $file = shift;
     my $reader = CljPerl::Reader->new();
     $reader->read_file($file);
-    $reader->ast()->each(sub {$self->_eval($_[0])});
-    pop @{$self->{file_stack}};
-    return 1;
+    #my $scopes_size = scalar @{$self->{scopes}};
+    #my @backup_scopes = @{$self->{scopes}}[0 .. $scopes_size-2];
+    #my @nss = ($self->{scopes}->[$scopes_size-1]);
+    #$self->{scopes} = \@nss;
+    my $res = undef;
+    $reader->ast()->each(sub {$res = $self->_eval($_[0])});
+    #$scopes_size = scalar @{$self->{scopes}};
+    #$self->{scopes} = \@backup_scopes;
+    #push @{$self->{scopes}}, $self->{scopes}->[$scopes_size-1];
+    return $res;
   }
 
   sub eval {
@@ -191,8 +208,11 @@ package CljPerl::Evaler;
                   "->"=>1,
                   "eq"=>1,
                   "ne"=>1,
+		  "and"=>1,
+		  "or"=>1,
                   "equal"=>1,
                   "require"=>1,
+		  "read"=>1,
 	          println=>1, 
                   "trace-vars"=>1};
 
@@ -215,6 +235,8 @@ package CljPerl::Evaler;
       return $nil;
     } elsif($type eq "accessor") {
       return CljPerl::Atom->new("accessor", $self->bind($value));
+    } elsif($type eq "sender") {
+      return CljPerl::Atom->new("sender", $self->bind($value));
     } elsif($type eq "syntaxquotation" or $type eq "quotation") {
       $self->{syntaxquotation_scope} += 1 if $type eq "syntaxquotation";
       $self->{quotation_scope} += 1 if $type eq "quotation";
@@ -297,8 +319,10 @@ package CljPerl::Evaler;
         my $v = $self->_eval($ast->second());
         my $vtype = $v->type();
         my $vvalue = $v->value();
-        $ast->error("index accessor expects a vector or list as the first arguments") if $vtype ne "vector" and $vtype ne "list";
-        $ast->error("index is bigger than vector size") if $fvalue >= scalar @{$vvalue};
+        $ast->error("index accessor expects a vector or list or xml as the first arguments")
+           if $vtype ne "vector" and $vtype ne "list"
+              and $vtype ne "xml";
+        $ast->error("index is bigger than size") if $fvalue >= scalar @{$vvalue};
         if($size == 2) {
           return $vvalue->[$fvalue];
         } elsif($size == 3) {
@@ -350,20 +374,11 @@ package CljPerl::Evaler;
 	$self->pop_scope();
 	return $res;
       } elsif($ftype eq "perlfunction") {
-        my @rargs = $ast->slice(1 .. $size-1);
-        my @args = ();
-        foreach my $arg (@rargs) {
-          my $pobj = $self->clj2perl($arg);
-          if(ref($pobj) eq "ARRAY") {
-            push @args, @{$pobj};
-          } elsif(ref($pobj) eq "HASH") {
-            push @args, %{$pobj};
-          } else {
-            push @args, $pobj;
-          };
-        };
+        my $meta = undef;
+        $meta = $self->_eval($ast->second()) if defined $ast->second() and $ast->second()->type() eq "meta";
         my $perl_func = $f->value();
-        return &wrap_perlobj(\&{$perl_func}(@args));
+        my @args = $ast->slice((defined $meta ? 2 : 1) .. $size-1);
+        return $self->perlfunc_call($perl_func, $meta, \@args);
       } elsif($ftype eq "macro") {
         my $scope = $f->{context};
         my $fn = $f->value();
@@ -417,6 +432,13 @@ package CljPerl::Evaler;
         $ast->error("unsupport type " . $at . " for accessor");
       }
       return $a;
+    } elsif($type eq "sender") {
+      my $sn = $self->_eval($value);
+      $ast->error("sender expects a string or keyword")
+        if $sn->type() ne "string"
+           and $sn->type() ne "keyword";
+      my $s = CljPerl::Atom->new("symbol", $sn->value());
+      return $self->bind($s);
     } elsif($type eq "symbol") {
       return $self->bind($ast);
     } elsif($type eq "syntaxquotation") {
@@ -447,6 +469,34 @@ package CljPerl::Evaler;
       $m->value(\%mv);
       $m->type("meta") if $type eq "meta";
       return $m;
+    } elsif($class eq "Seq" and $type eq "xml") {
+      my $size = $ast->size();
+      $ast->error("xml expects >= 1 arguments") if $size == 0;
+      my $first = $ast->first();
+      $ast->error("xml expects a symbol as name") if $first->type() ne "symbol";
+      my @items = ();
+      my $xml = CljPerl::Atom->new("xml", \@items);
+      $xml->{name} = $first->value();
+      my @rest = $ast->slice(1 .. $size-1);
+      foreach my $i (@rest) {
+        my $iv = $self->_eval($i);
+        my $it = $iv->type();
+        $ast->error("xml expects string or xml or meta or list as items")
+          if $it ne "string"
+             and $it ne "xml"
+             and $it ne "meta"
+             and $it ne "list";
+        if($it eq "meta") {
+          $xml->meta($iv->value());
+        } elsif($it eq "list") {
+	  foreach my $i (@{$iv->value()}) {
+            push @items, $i;
+	  };
+        } else {;
+          push @items, $iv;
+        };
+      };
+      return $xml;
     };
     return $ast;
   }
@@ -573,10 +623,16 @@ package CljPerl::Evaler;
       if($m->type() eq "symbol" or $m->type() eq "keyword") {
       } else {
         $m = $self->_eval($m);
-        $ast->error("require expects a string or symbol or keyword")
+        $ast->error("require expects a string")
           if $m->type() ne "string";
       };
-      $self->load($m->value());
+      return $self->load($m->value());
+    } elsif($fn eq "read") {
+      $ast->error("read expects 1 argument") if $size != 2;
+      my $f = $self->_eval($ast->second());
+      $ast->error("read expects a string")
+        if $f->type() ne "string";
+      return $self->read($f->value());
     # (list 'a 'b 'c)
     } elsif($fn eq "list") {
       return $emtpy_list if $size == 1;
@@ -720,6 +776,19 @@ package CljPerl::Evaler;
       } else {
         return $true;
       };
+    # (and/or true_or_false true_or_false)
+    } elsif($fn eq "and" or $fn eq "or") {
+      $ast->error($fn . " expects 2 arguments") if $size != 3;
+      my $v1 = $self->_eval($ast->second());
+      my $v2 = $self->_eval($ast->third());
+      $ast->error($fn . " expects bool as arguments")
+        if $v1->type() ne "bool" or $v2->type() ne "bool";
+      if(($fn eq "and" and $v1->value() eq "true" and $v2->value() eq "true")
+         or ($fn eq "or" and ($v1->value() eq "true" or $v2->value() eq "true"))) {
+        return $true;
+      } else {
+        return $false;
+      };
     # (length list_or_vector_or_map_or_string)
     } elsif($fn eq "length") {
       $ast->error("length expects 1 argument") if $size != 2;
@@ -862,68 +931,12 @@ package CljPerl::Evaler;
         $ast->error("cannot find $mn");
       } else {
         $ns = "CljPerl" if ! defined $ns or $ns eq "";
-        my $ret_type = "scalar";
-        if($perl_func =~ /^\@/){
-          $ret_type = "array";
-        } elsif($perl_func =~ /^\%/) {
-          $ret_type = "hash";
-        } elsif($perl_func =~ /^\\/) {
-          $ret_type = "ref";
-        } elsif($perl_func =~ /^!/) {
-          $ret_type = "nil";
-        };
-        my @fargtypes = ();
-        if($perl_func =~ /([\\\$\@\%]+)$/g){
-          @fargtypes = split //, $1;
-        };
-        $perl_func =~ s/[!\\\$\@\%]//g;
+        my $meta = undef;
+        $meta = $self->_eval($ast->third()) if defined $ast->third() and $ast->third()->type() eq "meta";
         $perl_func = $ns . "::" . $perl_func;
-        my @rest = $ast->slice(2 .. $size-1);
-        my @args = ();
-        push @args, $ns if $blessed eq "->";
-        my $i = 0;
-        foreach my $r (@rest) {
-          my $pobj = $self->clj2perl($self->_eval($r));
-          if($i < scalar @fargtypes) {
-            my $ft = $fargtypes[$i];
-            if($ft eq "\$") {
-              push @args, $pobj; 
-            } elsif($ft eq "\@") {
-              push @args, @{$pobj};
-            } elsif($ft eq "\%") {
-              push @args, %{$pobj};
-            } elsif($ft eq "\\") {
-              push @args, \$pobj;
-            } else {
-              push @args, $pobj;
-            };
-          } else {
-            if(ref($pobj) eq "ARRAY") {
-              push @args, @{$pobj};
-            } elsif(ref($pobj) eq "HASH") {
-              push @args, %{$pobj};
-            } else {
-              push @args, $pobj;
-            };
-          };
-          $i ++;
-        };
-        if($ret_type eq "scalar") {
-          my $r = $perl_func->(@args);
-          return &wrap_perlobj($r);
-        } elsif($ret_type eq "array") {
-          my @r = $perl_func->(@args);
-          return &wrap_perlobj(@r);
-        } elsif($ret_type eq "hash") {
-          my %r = $perl_func->(@args);
-          return &wrap_perlobj(%r);
-        } elsif($ret_type eq "nil") {
-          $perl_func->(@args);
-          return $nil;
-        } else {
-          my $r = \$perl_func->(@args);
-          return &wrap_perlobj($r);
-        }
+        my @rest = $ast->slice((defined $meta ? 3 : 2) .. $size-1);
+        unshift @rest, CljPerl::Atom->new("string", $ns) if $blessed eq "->";
+        return $self->perlfunc_call($perl_func, $meta, \@rest);
       }
     # (perl->clj o)
     } elsif($fn eq "perl->clj") {
@@ -943,6 +956,89 @@ package CljPerl::Evaler;
     };
   
     return $ast;
+  }
+
+  sub perlfunc_call {
+    my $self = shift;
+    my $perl_func = shift;
+    my $meta = shift;
+    my $rargs = shift;
+    my $ret_type = "scalar";
+    my @fargtypes = ();
+    if(defined $meta) {
+      if(exists $meta->value()->{"return"}) {
+        my $rt = $meta->value()->{"return"};
+        $ast->error("return expects a string or keyword")
+          if $rt->type() ne "string"
+             and $rt->type() ne "keyword";
+        $ret_type = $rt->value();
+      };
+      if(exists $meta->value()->{"arguments"}) {
+        my $ats = $meta->value()->{"arguments"};
+        $ast->error("arguments expect a vector") if $ats->type() ne "vector";
+        foreach my $arg (@{$ats->value()}) {
+          $ast->error("arguments expect a vector of string or keyword")
+            if $arg->type() ne "string"
+               and $arg->type() ne "keyword";
+          push @fargtypes, $arg->value();
+        };
+      };
+    };
+    my @args = ();
+    my $i = 0;
+    foreach my $arg (@{$rargs}) {
+      my $pobj = $self->clj2perl($self->_eval($arg));
+      if($i < scalar @fargtypes) {
+        my $ft = $fargtypes[$i];
+        if($ft eq "scalar") {
+          push @args, $pobj;
+        } elsif($ft eq "array") {
+          push @args, @{$pobj};
+        } elsif($ft eq "hash") {
+          push @args, %{$pobj};
+        } elsif($ft eq "ref") {
+          push @args, \$pobj;
+        } else {
+          push @args, $pobj;
+        };
+      } else {
+        if(ref($pobj) eq "ARRAY") {
+          push @args, @{$pobj};
+        } elsif(ref($pobj) eq "HASH") {
+          push @args, %{$pobj};
+        } else {
+          push @args, $pobj;
+        };
+      };
+      $i ++;
+    };
+
+    if($ret_type eq "scalar") {
+      my $r = $perl_func->(@args);
+      return &wrap_perlobj($r);
+    } elsif($ret_type eq "ref-scalar") {
+      my $r = $perl_func->(@args);
+      return &wrap_perlobj(\$r);
+    } elsif($ret_type eq "array") {
+      my @r = $perl_func->(@args);
+      return &wrap_perlobj(@r);
+    } elsif($ret_type eq "ref-array") {
+      my @r = $perl_func->(@args);
+      return &wrap_perlobj(\@r);
+    } elsif($ret_type eq "hash") {
+      my %r = $perl_func->(@args);
+      return &wrap_perlobj(%r);
+    } elsif($ret_type eq "ref-hash") {
+      my %r = $perl_func->(@args);
+      return &wrap_perlobj(\%r);
+    } elsif($ret_type eq "nil") {
+      $perl_func->(@args);
+      return $nil;
+    } else {
+      my $r = \$perl_func->(@args);
+      return &wrap_perlobj($r);
+    };
+
   }
 
   sub clj2perl {
@@ -1000,7 +1096,9 @@ package CljPerl::Evaler;
 
   sub perl2clj {
     my $v = shift; #$ast->value();
-    if(ref($v) eq "SCALAR") {
+    if(! defined ref($v) or ref($v) eq ""){
+      return CljPerl::Atom->new("string", $v);
+    } elsif(ref($v) eq "SCALAR") {
       return CljPerl::Atom->new("string", ${$v});
     } elsif(ref($v) eq "HASH") {
       my %m = ();
@@ -1024,6 +1122,7 @@ package CljPerl::Evaler;
 
   sub trace_vars {
     my $self = shift;
+    print @{$self->scopes()} . "\n";
     foreach my $vn (keys %{$self->current_scope()}) {
       print "$vn\n" # . CljPerl::Printer::to_string(${$self->current_scope()}{$vn}->value()) . "\n";
     };

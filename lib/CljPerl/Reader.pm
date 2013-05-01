@@ -6,7 +6,7 @@ package CljPerl::Reader;
   use CljPerl::Atom;
   use CljPerl::Logger;
 
-  our $VERSION = '0.04';
+  our $VERSION = '0.05';
 
   sub new {
     my $class = shift;
@@ -237,8 +237,12 @@ package CljPerl::Reader;
     if(defined $c) {
       if($c eq ":") {
         $self->consume(1);
-        my $a = CljPerl::Atom->new("accessor", $self->lex());
-        return $a;  
+        return CljPerl::Atom->new("accessor", $self->lex());
+      } elsif($c eq "!") {
+        $self->consume(1);
+        return CljPerl::Atom->new("sender", $self->lex());
+      } elsif($c eq '[') {
+        return $self->seq("xml", "[", "]");
       } else {
         $self->error("unsupport syntax for disptacher");
       };
