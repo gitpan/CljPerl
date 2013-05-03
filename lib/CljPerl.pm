@@ -23,7 +23,7 @@ our @EXPORT = qw(
 	
 );
 
-our $VERSION = '0.05';
+our $VERSION = '0.06';
 
 
 # Preloaded methods go here.
@@ -33,7 +33,7 @@ sub print {
   print @_;
 }
 
-sub open {
+sub openfile {
   my $file = shift;
   my $cb = shift;
   my $fh;
@@ -53,6 +53,15 @@ sub readline {
   return <$fh>;
 }
 
+sub readlines {
+  my $file = shift;
+  my $fh;
+  open $fh, "<$file";
+  my @lines = <$fh>;
+  close $fh;
+  return join("\n", @lines);
+}
+
 sub file_exists {
   my $file = shift;
   return \(-e $file);
@@ -64,7 +73,7 @@ sub use_lib {
   unshift @INC, $path;
 }
 
-my $lib_path = File::Spec->rel2abs(dirname(__FILE__));
+my $lib_path = File::Spec->rel2abs(dirname(__FILE__) . "/CljPerl");
 use_lib($lib_path);
 
 sub gen_name {

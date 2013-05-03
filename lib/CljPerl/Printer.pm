@@ -3,10 +3,11 @@ package CljPerl::Printer;
   use strict;
   use warnings;
 
-  our $VERSION = '0.05';
+  our $VERSION = '0.06';
 
   sub to_string {
     my $obj = shift;
+    return "" if !defined $obj;
     my $class = $obj->class();
     my $type = $obj->type();
     my $s = "";
@@ -48,8 +49,9 @@ package CljPerl::Printer;
         $s = "<";
         $s .= $obj->{name};
         if(defined $obj->{meta}) {
-          foreach my $i (keys %{$obj->meta()}) {
-            $s .= " " . $i . "=\"" . to_string($obj->meta()->{$i}) . "\"";
+          my %meta = %{$obj->meta()->value()};
+          foreach my $i (keys %meta) {
+            $s .= " " . $i . "=\"" . to_string($meta{$i}) . "\"";
           };
         };
         $s .= ">";

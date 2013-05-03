@@ -96,7 +96,7 @@
 (#::a (meta m) 'c)
 (println (meta m))
 
-(require "../lib/core.clp")
+(require "../lib/CljPerl/core.clp")
 
 (defmulti mf type)
 (println (meta mf))
@@ -154,7 +154,7 @@
   (def bar0 'bar1)
   (println (foo#bar)))
 
-(. open ">t.txt" (fn [f]
+(. openfile ">t.txt" (fn [f]
   (println "bbbb")
   (. puts f "aaa")))
 
@@ -184,3 +184,15 @@
 (println (or true false))
 (println (and true false))
 (println (or false false))
+
+(println (xml-name #[html]))
+
+(require "xml")
+
+(println ($ "#aa" #[html "aaaa" #[a ^{:id "aa"} "a"]]
+  (fn [xml]
+    #[b "aaa"])))
+
+(println ($ "[id=aa]" #[html "aaaa" #[a ^{:id "aa"} "a"]]
+  (fn [xml]
+    #[b "aaa"])))

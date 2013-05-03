@@ -135,42 +135,42 @@ Quoi is a simple web framework by CljPerl.
 	; load quoi
 	(require quoi)
 
-	(def alist (list "a" "b" "c"))
+	; load quoi menu utils
+	(require quoi/menu)
 
-	(map (fn [i]
-	  ; set page per item in alist 
-	  (quoi#page (append "/" (append i "$"))
-	    (fn [S]
-	      #[html
-	        #[body
-	        #[h1 i]
-	        #[p "url: " (#::path S)] ; S is an object hosts request/session information.
-	        #[p "method: " (#::method S)]
-	        #[p "params: " (clj->string (#::params S))]
-	        #[p "headers: " (clj->string (#::headers S))]]])))
-	  alist)
+	; create a menu
+	(def menu (quoi#menu
+	  ["Home" "home" (quoi#file "index.clp")]
+	  ["About" "about" (quoi#file "about.clp")]))
 
 	; set the index page.
 	(quoi#page "/$"
-	  "index.clp")
+	  (quoi#file "index.clp"))
 
 	(quoi#start {:port 9090})
 
 #### Template : index.clp
 
-	#[html
-	  #[body
-	    #[h1 "hello world"]
-	    #[p "url: " (#::path S)]
-	    #[p "method: " (#::method S)]
-	    #[p "params: " (clj->string (#::params S))]
-	    #[p "headers: " (clj->string (#::headers S))] 
-	    #[ul (map
-	           (fn [i]
-	              #[li #[a ^{:href (append "/" i)} (append "item " i)]])
-	           (list "a" "b" "c"))]]]
+	#[span
+	  #[h1 "hello world"]
+	  #[p "url: " (#::path S)]
+	  #[p "method: " (#::method S)]
+	  #[p "params: " (clj->string (#::params S))]
+	  #[p "headers: " (clj->string (#::headers S))] 
+	  menu]
 
 #### Run
 
 	bin/cljp app.clj
-	
+
+#### XML selector/translator
+
+	($ "#foo" #[html "hello" #[a ^{:id "foo"} "foo"]]
+	  (fn [xml]
+	    #[a "bar"])) ; <html>hello<span>bar</span></html>
+
+	($ "[id=foo]" #[html "hello" #[a ^{:id "foo"} "foo"]]
+	  (fn [xml]
+	    #[span "bar"])) ; <html>hello<span>bar</bar></html>
+
+		
