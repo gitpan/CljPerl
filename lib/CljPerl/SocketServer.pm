@@ -4,7 +4,7 @@ use strict;
 use warnings;
 
 
-our $VERSION = '0.06';
+our $VERSION = '0.07';
 
 use AnyEvent::Socket;
 use AnyEvent::Handle;
@@ -68,7 +68,7 @@ sub socket_server {
 sub socket_send {
   my $socket = shift;
   my $msg = shift;
-  if(defined $socket){
+  if(defined $socket and ref($socket) ne "string"){
     $socket->{__send__}->($msg);
   };
 };
@@ -76,14 +76,16 @@ sub socket_send {
 sub socket_on_read {
   my $socket = shift;
   my $cb = shift;
-  if(defined $socket) {
+  if(defined $socket and ref($socket) ne "string") {
     $socket->on_read($socket->{__on_read__}->($cb));
   };
 };
 
 sub socket_destroy {
   my $socket = shift;
-  $socket->destroy;
+  if(defined $socket and ref($socket) ne "string") {
+    $socket->destroy;
+  };
 };
 
 1;
