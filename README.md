@@ -11,6 +11,7 @@ make use of the great resources from CPAN.
 ## Key features
 
  * Seamless connection with Perl.
+ * Coroutine.
  * Native XML form which could be used to create web page template.
 
 ## Example
@@ -36,6 +37,16 @@ make use of the great resources from CPAN.
 	(defmethod mf "keyword" [a] (println "keyword"))
 	(mf "test")
 	(mf :test)
+
+	(def c (coroutine
+	  (println "b")
+	  (coro-sleep)
+	  (println "d")))
+
+	(println "a")
+	(coro-resume c)
+	(println "c")
+	(coro-resume c)
 
 	------------------
 
@@ -173,4 +184,8 @@ Quoi is a simple web framework by CljPerl.
 	  (fn [xml]
 	    #[span "bar"])) ; <html>hello<span>bar</bar></html>
 
-		
+#### Quoi demo
+
+ * A web server hosted on OpenShift: [quoi-wehu.rhcloud.com](http://quoi-wehu.rhcloud.com)
+ * Source code: [quoi](https://github.com/wehu/quoi)
+

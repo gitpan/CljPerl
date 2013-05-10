@@ -7,8 +7,9 @@ package CljPerl::Evaler;
   use CljPerl::Printer;
   use File::Spec;
   use File::Basename;
+  use Coro;
 
-  our $VERSION = '0.09';
+  our $VERSION = '0.10';
 
   our $namespace_key = "0namespace0";
 
@@ -17,10 +18,13 @@ package CljPerl::Evaler;
     my @default_namespace = ();
     my @scopes = ({$namespace_key=>\@default_namespace});
     my @file_stack = ();
+    my @caller = ();
     my $self = {class=>$class,
                 scopes=>\@scopes,
                 loaded_files=>{},
                 file_stack=>\@file_stack,
+	        caller=>\@caller,
+	        exception=>undef,
                 quotation_scope=>0,
                 syntaxquotation_scope=>0};
     bless $self;
@@ -50,6 +54,22 @@ package CljPerl::Evaler;
     my $self = shift;
     my $scope = @{$self->scopes()}[0];
     return $scope;
+  }
+
+  sub push_caller {
+    my $self = shift;
+    my $ast  = shift;
+    unshift @{$self->{caller}}, $ast;
+  }
+
+  sub pop_caller {
+    my $self = shift;
+    shift @{$self->{caller}};
+  }
+
+  sub caller_size {
+    my $self = shift;
+    scalar @{$self->{caller}};
   }
 
   sub push_namespace {
@@ -145,15 +165,8 @@ package CljPerl::Evaler;
     my $file = shift;
     my $reader = CljPerl::Reader->new();
     $reader->read_file($file);
-    #my $scopes_size = scalar @{$self->{scopes}};
-    #my @backup_scopes = @{$self->{scopes}}[0 .. $scopes_size-2];
-    #my @nss = ($self->{scopes}->[$scopes_size-1]);
-    #$self->{scopes} = \@nss;
     my $res = undef;
     $reader->ast()->each(sub {$res = $self->_eval($_[0])});
-    #$scopes_size = scalar @{$self->{scopes}};
-    #$self->{scopes} = \@backup_scopes;
-    #push @{$self->{scopes}}, $self->{scopes}->[$scopes_size-1];
     return $res;
   }
 
@@ -169,27 +182,32 @@ package CljPerl::Evaler;
 
   our $builtin_funcs = {
                   "eval"=>1,
-                  syntax=>1,
-                  def=>1,
+                  "syntax"=>1,
+		  "catch"=>1,
+		  "exception-label"=>1,
+		  "exception-message"=>1,
+		  "throw"=>1,
+                  "def"=>1,
                   "set!"=>1,
-                  let=>1,
-                  fn=>1,
-		  defmacro=>1,
+                  "let"=>1,
+                  "fn"=>1,
+		  "defmacro"=>1,
                   "gen-sym"=>1,
-                  list=>1,
-                  car=>1,
-                  cdr=>1,
-                  cons=>1,
+                  "list"=>1,
+                  "car"=>1,
+                  "cdr"=>1,
+                  "cons"=>1,
                   "if"=>1,
                   "while"=>1,
                   "begin"=>1,
                   "length"=>1,
+		  "reverse"=>1,
                   "object-id"=>1,
                   "type"=>1,
                   "perlobj-type"=>1,
                   "meta"=>1,
                   "apply"=>1,
-                  append=>1,
+                  "append"=>1,
                   "keys"=>1,
                   "namespace-begin"=>1,
                   "namespace-end"=>1,
@@ -217,7 +235,16 @@ package CljPerl::Evaler;
                   "equal"=>1,
                   "require"=>1,
 		  "read"=>1,
-	          println=>1, 
+	          "println"=>1, 
+                  "coro"=>1,
+                  "coro-suspend"=>1,
+                  "coro-sleep"=>1,
+                  "coro-yield"=>1,
+                  "coro-resume"=>1,
+                  "coro-wake"=>1,
+                  "coro-join"=>1,
+                  "coro-current"=>1,
+                  "coro-main"=>1,
                   "xml-name"=>1,
                   "trace-vars"=>1};
 
@@ -352,6 +379,7 @@ package CljPerl::Evaler;
           push @rrargs, $self->_eval($arg);
         };
 	$self->push_scope($scope);
+	$self->push_caller($fn);
         my $rest_args = undef;
         my $i = 0;
         my $fargsvalue = $fargs->value();
@@ -383,6 +411,7 @@ package CljPerl::Evaler;
           $res = $self->_eval($b);
 	};
 	$self->pop_scope();
+	$self->pop_caller();
 	return $res;
       } elsif($ftype eq "perlfunction") {
         my $meta = undef;
@@ -392,10 +421,11 @@ package CljPerl::Evaler;
         return $self->perlfunc_call($perl_func, $meta, \@args);
       } elsif($ftype eq "macro") {
         my $scope = $f->{context};
-        my $fn = $f->value();
+        my $fn = $fvalue;
         my $fargs = $fn->third();
 	my @rargs = $ast->slice(1 .. $ast->size()-1);
 	$self->push_scope($scope);
+	$self->push_caller($fn);
         my $rest_args = undef;
         my $i = 0;
         my $fargsvalue = $fargs->value();
@@ -427,6 +457,7 @@ package CljPerl::Evaler;
           $res = $self->_eval($b);
 	};
 	$self->pop_scope();
+	$self->pop_caller();
 	return $self->_eval($res);
       } else {
         $ast->error("expect a function or function name or index/key accessor");
@@ -537,6 +568,57 @@ package CljPerl::Evaler;
     } elsif($fn eq "syntax") {
       $ast->error("syntax expects 1 argument") if $size != 2;
       return $self->bind($ast->second());
+    } elsif($fn eq "throw") {
+      $ast->error("throw expects 2 arguments") if $size != 3;
+      my $label = $ast->second();
+      $ast->error("throw expects a symbol as the first argument but got " . $label->type()) if $label->type() ne "symbol";
+      my $msg = $self->_eval($ast->third());
+      $ast->error("throw expects a string as the second argument but got " . $msg->type()) if $msg->type() ne "string";
+      my $e = CljPerl::Atom->new("exception", $msg->value());
+      $e->{label} = $label->value();
+      my @caller = @{$self->{caller}};
+      $e->{caller} = \@caller;
+      $self->{exception} = $e;
+      die $msg->value();
+    } elsif($fn eq "exception-label") {
+      $ast->error("exception-label expects 1 argument") if $size != 2;
+      my $e = $self->_eval($ast->second());
+      $ast->error("exception-label expects an exception as argument but got " . $e->type()) if $e->type() ne "exception";
+      return CljPerl::Atom->new("string", $e->{label});
+    } elsif($fn eq "exception-message") {
+      $ast->error("exception-message expects 1 argument") if $size != 2;
+      my $e = $self->_eval($ast->second());
+      $ast->error("exception-message expects an exception as argument but got " . $e->type()) if $e->type() ne "exception";
+      return CljPerl::Atom->new("string", $e->value());
+    } elsif($fn eq "catch") {
+      $ast->error("catch expects 2 arguments") if $size != 3;
+      my $handler = $self->_eval($ast->third());
+       $ast->error("catch expects a function/lambda as the second argument but got " . $handler->type()) if $handler->type() ne "function";
+      my $res;
+      my $saved_caller_depth = $self->caller_size();
+      eval {
+	$res = $self->_eval($ast->second());
+      };
+      if($@){
+	my $e = $self->{exception};
+	if(!defined $e) {
+          $e = CljPerl::Atom->new("exception", "unkown expection");
+	  $e->{label} = "undef";
+	  my @ec = ();
+	  $e->{caller} = \@ec;
+        };
+	$ast->error("catch expects an exception for handler but got " . $e->type()) if $e->type() ne "exception";
+	my $i = $self->caller_size();
+	for(;$i > $saved_caller_depth; $i--){
+          $self->pop_caller();
+	};
+	my $call_handler = CljPerl::Seq->new("list");
+	$call_handler->append($handler);
+	$call_handler->append($e);
+	$self->{exception} = undef;
+	return $self->_eval($call_handler);
+      };
+      return $res;
     # (def ^{} name value)
     } elsif($fn eq "def") {
       $ast->error($fn . " expects 2 arguments") if $size > 4 or $size < 3;
@@ -577,6 +659,7 @@ package CljPerl::Evaler;
       $ast->error($fn . " expects [name value ...] pairs as the first argument") if $varssize%2 != 0;
       my $varvs = $vars->value();
       $self->push_scope($self->current_scope());
+      $self->push_caller($ast);
       for(my $i=0; $i < $varssize; $i+=2) {
         my $n = $varvs->[$i];
         my $v = $varvs->[$i+1];
@@ -588,7 +671,8 @@ package CljPerl::Evaler;
       foreach my $b (@body){
         $res = $self->_eval($b);
       };
-      $self->pop_scope(); 
+      $self->pop_scope();
+      $self->pop_caller();
       return $res;
     # (fn [args ...] body)
     } elsif($fn eq "fn") {
@@ -846,7 +930,7 @@ package CljPerl::Evaler;
       } else {
         return $false;
       };
-    # (length list_or_vector_or_xml_map_or_string)
+    # (length list_or_vector_or_xml_or_map_or_string)
     } elsif($fn eq "length") {
       $ast->error("length expects 1 argument") if $size != 2;
       my $v = $self->_eval($ast->second());
@@ -859,6 +943,26 @@ package CljPerl::Evaler;
         $r->value(scalar %{$v->value()});
       } else {
         $ast->error("unexpected type " . $v->type() . " of argument for length");
+      };
+      return $r;
+    # (reverse list_or_vector_or_xml_or_string)
+    } elsif($fn eq "reverse") {
+      $ast->error("length expects 1 argument") if $size != 2;
+      my $v = $self->_eval($ast->second());
+      my $r;
+      if($v->type() eq "string"){
+	$r = CljPerl::Atom->new("string", 0);
+        $r->value(reverse($v->value()));
+      } elsif($v->type() eq "list") {
+        $r = CljPerl::Seq->new("list");
+	my @vv = reverse @{$v->value()};
+        $r->value(\@vv);
+      } elsif($v->type() eq "vector" or $v->type() eq "xml"){
+	$r = CljPerl::Atom->new($v->type());
+	my @vv = reverse @{$v->value()};
+        $r->value(\@vv);
+      } else {
+        $ast->error("unexpected type " . $v->type() . " of argument for reverse");
       };
       return $r;
     # (append list1 list2)
@@ -1017,6 +1121,58 @@ package CljPerl::Evaler;
       $ast->error("println expects 1 argument") if $size != 2;
       print CljPerl::Printer::to_string($self->_eval($ast->second())) . "\n";
       return $nil;
+    } elsif($fn eq "coro") {
+      $ast->error("coro expects 1 argument") if $size != 2;
+      my $b = $self->_eval($ast->second());
+      $ast->error("core expects a function as argument but got " . $b->type()) if $b->type() ne "function";
+      my $coro = new Coro sub {
+        my $evaler = CljPerl::Evaler->new();
+        my $fc = CljPerl::Seq->new("list");
+        $fc->append($b);
+        $evaler->_eval($fc);
+      };
+      $coro->ready();
+      return CljPerl::Atom->new("coroutine", $coro);
+    } elsif($fn eq "coro-suspend") {
+      $ast->error("coro-suspend expects 1 argument") if $size != 2;                              
+      my $coro = $self->_eval($ast->second());
+      $ast->error("coro-suspend expects a coroutine as argument but got " . $coro->type()) if $coro->type() ne "coroutine";
+      $coro->value()->suspend();
+      return $coro;
+    } elsif($fn eq "coro-sleep") {
+      $ast->error("coro-sleep expects 0 argument") if $size != 1;                              
+      $Coro::current->suspend();
+      cede;
+      return CljPerl::Atom->new("coroutine", $Coro::current);
+    } elsif($fn eq "coro-yield") {
+      $ast->error("coro-yield expects 0 argument") if $size != 1;                              
+      cede;
+      return CljPerl::Atom->new("coroutine", $Coro::current);
+    } elsif($fn eq "coro-resume") {
+      $ast->error("coro-resume expects 1 argument") if $size != 2;                              
+      my $coro = $self->_eval($ast->second());
+      $ast->error("coro-resume expects a coroutine as argument but got " . $coro->type()) if $coro->type() ne "coroutine";
+      $coro->value()->resume();
+      $coro->value()->cede_to();
+      return $coro;                                                                              
+    } elsif($fn eq "coro-wake") {
+      $ast->error("coro-wake expects 1 argument") if $size != 2;                              
+      my $coro = $self->_eval($ast->second());
+      $ast->error("coro-wake expects a coroutine as argument but got " . $coro->type()) if $coro->type() ne "coroutine";
+      $coro->value()->resume();
+      return $coro;
+    } elsif($fn eq "join-coro") {
+      $ast->error("join-coro expects 1 argument") if $size != 2;                              
+      my $coro = $self->_eval($ast->second());
+      $ast->error("join-coro expects a coroutine as argument but got " . $coro->type()) if $coro->type() ne "coroutine";
+      $coro->value()->join();                                                                                     
+      return $coro;
+    } elsif($fn eq "coro-current") {
+      $ast->error("coro-current expects 0 argument") if $size != 1;                             
+      return CljPerl::Atom->new("coroutine", $Coro::current);                                                                                                                                        
+    } elsif($fn eq "coro-main") {
+      $ast->error("coro-main expects 0 argument") if $size != 1;                              
+      return CljPerl::Atom->new("coroutine", $Coro::main);                             
     } elsif($fn eq "trace-vars") {
       $ast->error("trace-vars expects 0 argument") if $size != 1;
       $self->trace_vars();

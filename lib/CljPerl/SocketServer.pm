@@ -4,7 +4,7 @@ use strict;
 use warnings;
 
 
-our $VERSION = '0.09';
+our $VERSION = '0.10';
 
 use AnyEvent::Socket;
 use AnyEvent::Handle;
@@ -27,7 +27,7 @@ sub socket_server {
         $hdl->on_error(
             sub {
               my ($hdl, $fatal, $message) = @_;
-              print "$message\n";
+              #print "$message\n";
               $hdl->destroy;
             }
         );

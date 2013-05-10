@@ -23,7 +23,7 @@ our @EXPORT = qw(
 	
 );
 
-our $VERSION = '0.09';
+our $VERSION = '0.10';
 
 
 # Preloaded methods go here.
@@ -86,6 +86,11 @@ sub match {
   my $str = shift;
   my @m = ($str =~ qr($regexp));
   return \@m;
+}
+
+sub get_env {
+  my $name = shift;
+  return $ENV{$name};
 }
 
 1;

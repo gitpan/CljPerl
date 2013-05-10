@@ -208,3 +208,36 @@
        (println ~s))))
 
 (test-gen-sym)
+
+(
+(fn []
+(catch (throw aaa "bbb") (fn [e] (println e)
+(println (exception-label e))
+(println (exception-message e))))))
+
+((fn []
+ (catch
+  ((fn []
+     (throw aaa "bbb")))
+  (fn [e]
+    (println e)))))
+
+(cond
+  [true (println "a")]
+  [else (println "b")])
+
+(println (env "PATH"))
+
+(def c0 (coroutine
+  (println "a")
+  (coro-sleep)
+  (println (coro-current))
+  (println (coro-main))
+  (println "d")))
+
+(println "b")
+(coro-resume c0)
+(println "c")
+(println (coro-current))
+(coro-resume c0)
+
